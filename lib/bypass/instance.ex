@@ -3,11 +3,6 @@ defmodule Bypass.Instance do
 
   import Bypass.Utils
 
-  # This is used to override the default behaviour of ranch_tcp
-  # and limit the range of interfaces it will listen on to just
-  # the loopback interface.
-  @listen_ip {127, 0, 0, 1}
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, [opts])
   end
@@ -28,7 +23,7 @@ defmodule Bypass.Instance do
   def init([opts]) do
     adapter = adapter_from_options(opts)
     # Get a free port from the OS
-    case :ranch_tcp.listen(ip: @listen_ip, port: Keyword.get(opts, :port, 0)) do
+    case :ranch_tcp.listen(ip: listen_ip(), port: Keyword.get(opts, :port, 0)) do
       {:ok, socket} ->
         {:ok, port} = :inet.port(socket)
         :erlang.port_close(socket)
@@ -266,7 +261,7 @@ defmodule Bypass.Instance do
 
   defp do_up(port, ref, adapter) do
     plug_opts = [self()]
-    {:ok, socket} = :ranch_tcp.listen(ip: @listen_ip, port: port)
+    {:ok, socket} = :ranch_tcp.listen(ip: listen_ip(), port: port)
     cowboy_opts = [ref: ref, acceptors: 5, port: port, socket: socket]
     {:ok, _pid} = adapter.http(Bypass.Plug, plug_opts, cowboy_opts)
     socket
@@ -331,5 +326,16 @@ defmodule Bypass.Instance do
         Application.get_env(:bypass, :adapter)
       adapter -> adapter
     end
+  end
+
+  # This is used to override the default behaviour of ranch_tcp
+  # and limit the range of interfaces it will listen on to just
+  # the configured interface. Loopback is a default interface.
+  defp listen_ip do
+    Application.get_env(:bypass, :listen_ip, "127.0.0.1")
+    |> String.split(".")
+    |> Enum.map(&Integer.parse/1)
+    |> Enum.map(&elem(&1, 0))
+    |> List.to_tuple()
   end
 end
